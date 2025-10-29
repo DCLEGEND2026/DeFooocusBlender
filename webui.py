@@ -866,6 +866,18 @@ def dump_default_english_config():
 
 # dump_default_english_config()
 
+# Simple API
+try:
+    from simple_api import create_simple_api
+    simple_api = create_simple_api()
+    with shared.gradio_root:
+        with gr.Tab("Simple API"):
+            simple_api.render()
+    print("✓ Simple API enabled")
+except Exception as e:
+    print(f"Simple API error: {e}")
+
+
 shared.gradio_root.launch(
     inbrowser=args_manager.args.in_browser,
     server_name=args_manager.args.listen,
