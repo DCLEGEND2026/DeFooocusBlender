@@ -11,6 +11,32 @@ This is just a fork (and a fork of forks), we are not the authors of this creati
 
 ## Additional features included in this fork:
 
+### Blender Render Stylizer:
+
+Give it a Blender render, pick a style, and get the same scene back in that style (Photorealistic, Cinematic, Anime,
+3D Animated Movie, Claymation, Watercolor, Oil Painting, Comic Book, Cyberpunk Neon, Fantasy Art, Pencil Sketch,
+Pixel Art, Low Poly, Ukiyo-e, or any of the SDXL styles). The composition is kept by running "Vary" on the render
+together with the PyraCanny (edges) and CPDS (shapes) ControlNets on the same render.
+
+- **In the browser:** open the **Blender Render** tab, upload the render, choose a style, press **Stylize Render**.
+- **Inside Blender (3.0+):** *Edit > Preferences > Add-ons > Install* `blender_addon/defooocus_blender.py`, enable
+  *DeFooocus Render Stylizer*, set the **Server URL** in its preferences (`http://127.0.0.1:7865`, or the
+  `https://xxxx.gradio.live` link when running on Colab). Then in the Image Editor press **N** > **DeFooocus**,
+  pick a style and press **Stylize** (or **Render + Stylize**). Results load as new images and are saved to
+  `//defooocus/` next to the .blend file.
+
+| Setting | What it does |
+| --- | --- |
+| Creativity | Low (0.3-0.5) keeps the render's colors and lighting, high (0.7-1.0) repaints more freely. Each style sets a sensible default. |
+| Structure Strength / Until | How strictly, and for how much of the sampling, the edges and shapes of the render are followed. |
+| Edges / Shapes | Toggle the PyraCanny and CPDS ControlNets. |
+| Extra Styles | Any style names from the Styles tab, comma separated. |
+| Match Render Size | Scales the result back to the exact render resolution. |
+
+The add-on talks to these endpoints (POST `/run/<name>` with `{"data": [...]}`, every value is a JSON string):
+`blender_styles`, `blender_submit` (base64 PNG, params JSON) -> job id, `blender_status` (job id) -> progress / base64
+PNGs, `blender_stop` (job id).
+
 ### Add Photopea:
 
 ![photopea](assets/photopea.png)

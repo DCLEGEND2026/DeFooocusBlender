@@ -13,6 +13,7 @@ import modules.flags as flags
 import modules.gradio_hijack as grh
 import modules.style_sorter as style_sorter
 import modules.meta_parser
+import modules.blender_render as blender_render
 from modules.rembg import rembg_run
 from modules.load_online import load_demos_names, load_tools_names, load_demos_url, load_tools_url
 import args_manager
@@ -145,7 +146,101 @@ with shared.gradio_root:
                 with gr.Column(scale=3):
                     rembg_output = grh.Image(label='rembg Output', interactive=False, height=380)
                 gr.Markdown("Powered by [🪄 rembg 2.0.53](https://github.com/danielgatis/rembg/releases/tag/v2.0.53)")
-            rembg_button.click(rembg_run, inputs=rembg_input, outputs=rembg_output, show_progress="full") 
+            rembg_button.click(rembg_run, inputs=rembg_input, outputs=rembg_output, show_progress="full")
+            with gr.Tab("Blender Render"):
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        blender_input = grh.Image(label='Blender render', source='upload', type='numpy', height=300)
+                        blender_preset = gr.Dropdown(label='Style', choices=blender_render.preset_names(),
+                                                     value=blender_render.DEFAULT_PRESET)
+                        blender_prompt = gr.Textbox(label='Describe the scene (optional)', lines=2,
+                                                    placeholder='e.g. a cozy wooden cabin in a snowy forest at dusk')
+                        blender_negative = gr.Textbox(label='Negative prompt (optional)', lines=1)
+                        blender_creativity = gr.Slider(label='Creativity', minimum=0.05, maximum=1.0, step=0.01,
+                                                       value=blender_render.preset_creativity(blender_render.DEFAULT_PRESET),
+                                                       info='Low keeps the colors and lighting of the render, high repaints it more freely.')
+                        with gr.Accordion(label='More options', open=False):
+                            blender_extra_styles = gr.Dropdown(label='Extra styles', choices=legal_style_names,
+                                                               value=[], multiselect=True)
+                            blender_structure_weight = gr.Slider(label='Structure strength', minimum=0.0, maximum=2.0, step=0.01,
+                                                                 value=blender_render.DEFAULT_STRUCTURE_WEIGHT,
+                                                                 info='How strictly the edges and shapes of the render are followed.')
+                            blender_structure_stop = gr.Slider(label='Structure until', minimum=0.0, maximum=1.0, step=0.01,
+                                                               value=blender_render.DEFAULT_STRUCTURE_STOP,
+                                                               info='Fraction of the sampling steps that follows the structure.')
+                            with gr.Row():
+                                blender_use_edges = gr.Checkbox(label='Follow edges (PyraCanny)', value=True)
+                                blender_use_shapes = gr.Checkbox(label='Follow shapes (CPDS)', value=True)
+                            blender_style_reference = grh.Image(label='Style reference image (optional)', source='upload',
+                                                                type='numpy', height=200)
+                            blender_performance = gr.Radio(label='Performance', choices=flags.Performance.list(),
+                                                           value=modules.config.default_performance)
+                            blender_image_number = gr.Slider(label='Images', minimum=1, maximum=4, step=1, value=1)
+                            blender_seed = gr.Number(label='Seed (-1 for random)', value=-1, precision=0)
+                        with gr.Row():
+                            blender_generate = gr.Button(value='Stylize Render', variant='primary')
+                            blender_stop = gr.Button(value='Stop')
+                    with gr.Column(scale=2):
+                        blender_progress = gr.Markdown()
+                        blender_gallery = gr.Gallery(label='Stylized', show_label=False, object_fit='contain',
+                                                     height=600, preview=True)
+                blender_job = gr.State('')
+
+                def blender_generate_clicked(render, preset, prompt, negative, creativity, extra_styles, structure_weight,
+                                             structure_stop, use_edges, use_shapes, style_reference, performance,
+                                             image_number, seed):
+                    if render is None:
+                        yield 'Upload a Blender render first.', gr.update(), ''
+                        return
+                    job_id = blender_render.submit(render, preset, prompt, negative, extra_styles,
+                                                   creativity=creativity,
+                                                   structure_weight=structure_weight,
+                                                   structure_stop=structure_stop,
+                                                   use_edges=use_edges,
+                                                   use_shapes=use_shapes,
+                                                   style_reference=style_reference,
+                                                   performance=performance,
+                                                   image_number=image_number,
+                                                   seed=seed)
+                    last_message = None
+                    while True:
+                        state = blender_render.status(job_id, include_images=False)
+                        if state['state'] not in ('queued', 'running'):
+                            break
+                        message = f"**{state['progress']}%** {state['message']}"
+                        if message != last_message:
+                            last_message = message
+                            yield message, gr.update(), job_id
+                        time.sleep(0.5)
+                    yield state['message'], gr.update(value=state.get('paths', [])), ''
+
+                blender_preset.change(blender_render.preset_creativity, inputs=blender_preset, outputs=blender_creativity,
+                                      queue=False, show_progress=False)
+                blender_generate.click(blender_generate_clicked,
+                                       inputs=[blender_input, blender_preset, blender_prompt, blender_negative,
+                                               blender_creativity, blender_extra_styles, blender_structure_weight,
+                                               blender_structure_stop, blender_use_edges, blender_use_shapes,
+                                               blender_style_reference, blender_performance, blender_image_number,
+                                               blender_seed],
+                                       outputs=[blender_progress, blender_gallery, blender_job])
+                blender_stop.click(lambda job_id: blender_render.stop(job_id) and None, inputs=blender_job,
+                                   queue=False, show_progress=False)
+
+                # HTTP API for the Blender add-on (blender_addon/defooocus_blender.py), e.g. POST /run/blender_submit
+                with gr.Row(visible=False):
+                    blender_api_render = gr.Textbox()
+                    blender_api_params = gr.Textbox()
+                    blender_api_job = gr.Textbox()
+                    blender_api_output = gr.Textbox()
+                    blender_api_button = gr.Button()
+                blender_api_button.click(blender_render.api_styles, inputs=None, outputs=blender_api_output,
+                                         queue=False, api_name='blender_styles')
+                blender_api_button.click(blender_render.api_submit, inputs=[blender_api_render, blender_api_params],
+                                         outputs=blender_api_output, queue=False, api_name='blender_submit')
+                blender_api_button.click(blender_render.api_status, inputs=blender_api_job, outputs=blender_api_output,
+                                         queue=False, api_name='blender_status')
+                blender_api_button.click(blender_render.api_stop, inputs=blender_api_job, outputs=blender_api_output,
+                                         queue=False, api_name='blender_stop')
             with gr.Tab("Online"):
                 with gr.Tab("Demos"):
                     for name in load_demos_names():
